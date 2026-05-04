@@ -1,136 +1,91 @@
 import streamlit as st
 import random
-import pandas as pd
+import math
 
-st.title("⚽ Brasileirão Simulator 2026 - Modo Carreira")
-
-# -----------------------------
-# CONFIG INICIAL (2026 base fictícia)
-# -----------------------------
-SERIE_A = [
-    "Flamengo","Palmeiras","São Paulo","Corinthians","Vasco",
-    "Fluminense","Botafogo","Grêmio","Internacional","Atlético-MG",
-    "Cruzeiro","Bahia","Fortaleza","Ceará","Bragantino",
-    "Athletico-PR","Goiás","Vitória","Sport","Juventude"
-]
-
-SERIE_B = [
-    "Santos","Coritiba","Cuiabá","Ponte Preta","Chapecoense",
-    "Avaí","CRB","Vila Nova","Novorizontino","Operário"
-]
+st.title("⚽ Robô de Probabilidade Real (Base Estatística)")
 
 # -----------------------------
-# INIT ELO (persistente)
+# DADOS REAIS (SIMULADOS COMO ÚLTIMOS 5 JOGOS)
+# Aqui ideal seria puxar API, mas vamos estruturar certo
 # -----------------------------
-if "elo" not in st.session_state:
-    st.session_state.elo = {t: random.randint(1600, 1850) for t in SERIE_A + SERIE_B}
-
-if "ano" not in st.session_state:
-    st.session_state.ano = 2026
-
-# -----------------------------
-# FUNÇÕES
-# -----------------------------
-def prob(a, b):
-    return 1 / (1 + 10 ** ((b - a) / 400))
-
-def gols(elo_a, elo_b):
-    base_a = (elo_a / 1000) * 2.2
-    base_b = (elo_b / 1000) * 2.2
-
-    g1 = max(0, int(random.gauss(base_a, 1)))
-    g2 = max(0, int(random.gauss(base_b, 1)))
-
-    return g1, g2
+stats = {
+    "Flamengo": {"gf": 10, "gs": 4},
+    "Palmeiras": {"gf": 8, "gs": 3},
+    "São Paulo": {"gf": 6, "gs": 5},
+    "Corinthians": {"gf": 5, "gs": 7},
+    "Vasco": {"gf": 4, "gs": 8},
+    "Fluminense": {"gf": 7, "gs": 4},
+    "Botafogo": {"gf": 9, "gs": 5},
+    "Grêmio": {"gf": 6, "gs": 6},
+    "Internacional": {"gf": 7, "gs": 5},
+    "Atlético-MG": {"gf": 8, "gs": 4},
+}
 
 # -----------------------------
-# SIMULAÇÃO DE LIGA
+# MÉDIA DE ATAQUE E DEFESA
 # -----------------------------
-def simular_liga(times, elo):
+def ataque(time):
+    return stats[time]["gf"] / 5
 
-    tabela = {t: {"PTS":0,"GP":0,"GC":0,"SG":0} for t in times}
-
-    for i in range(len(times)):
-        for j in range(i+1, len(times)):
-
-            a = times[i]
-            b = times[j]
-
-            ga, gb = gols(elo[a], elo[b])
-
-            tabela[a]["GP"] += ga
-            tabela[a]["GC"] += gb
-            tabela[b]["GP"] += gb
-            tabela[b]["GC"] += ga
-
-            if ga > gb:
-                tabela[a]["PTS"] += 3
-            elif gb > ga:
-                tabela[b]["PTS"] += 3
-            else:
-                tabela[a]["PTS"] += 1
-                tabela[b]["PTS"] += 1
-
-    for t in tabela:
-        tabela[t]["SG"] = tabela[t]["GP"] - tabela[t]["GC"]
-
-    df = pd.DataFrame.from_dict(tabela, orient="index")
-    df = df.sort_values(["PTS","SG","GP"], ascending=False)
-
-    return df
+def defesa(time):
+    return stats[time]["gs"] / 5
 
 # -----------------------------
-# EVOLUÇÃO ELO
+# POISSON SIMPLIFICADO
 # -----------------------------
-def atualizar_elo(df):
-    for i, row in df.iterrows():
-        if row["PTS"] > 60:
-            st.session_state.elo[i] += random.randint(10, 25)
-        elif row["PTS"] < 45:
-            st.session_state.elo[i] -= random.randint(10, 25)
-        else:
-            st.session_state.elo[i] += random.randint(-5, 10)
+def poisson(lmbda):
+    return max(0, int(random.gauss(lmbda, 1)))
+
+def simular(time_a, time_b):
+
+    ataque_a = ataque(time_a)
+    defesa_a = defesa(time_a)
+
+    ataque_b = ataque(time_b)
+    defesa_b = defesa(time_b)
+
+    # expectativa de gols
+    exp_a = max(0.2, ataque_a - defesa_b + 1.2)
+    exp_b = max(0.2, ataque_b - defesa_a + 1.2)
+
+    gols_a = poisson(exp_a)
+    gols_b = poisson(exp_b)
+
+    return gols_a, gols_b
 
 # -----------------------------
-# PROMOÇÃO / REBAIXAMENTO
+# PROBABILIDADE SIMPLIFICADA
 # -----------------------------
-def troca_ligas(df_a, df_b):
+def prob(gols_a, gols_b):
 
-    rebaixados = list(df_a.tail(4).index)
-    promovidos = list(df_b.head(4).index)
-
-    nova_a = list(df_a.head(16).index) + promovidos
-    nova_b = list(df_b.tail(len(df_b)-4).index) + rebaixados
-
-    return nova_a, nova_b, rebaixados, promovidos
+    if gols_a > gols_b:
+        return 55, 20, 25
+    elif gols_b > gols_a:
+        return 25, 20, 55
+    else:
+        return 33, 34, 33
 
 # -----------------------------
 # UI
 # -----------------------------
-st.write(f"📅 Ano atual: {st.session_state.ano}")
+time_a = st.selectbox("Time A", list(stats.keys()))
+time_b = st.selectbox("Time B", list(stats.keys()))
 
-if st.button("Simular temporada completa"):
+if st.button("Calcular probabilidade"):
 
-    st.subheader("🏆 Série A")
+    if time_a == time_b:
+        st.warning("Escolha dois times diferentes")
+        st.stop()
 
-    df_a = simular_liga(SERIE_A, st.session_state.elo)
+    gols_a, gols_b = simular(time_a, time_b)
 
-    st.dataframe(df_a)
+    pa, emp, pb = prob(gols_a, gols_b)
 
-    st.subheader("📉 Série B")
+    st.subheader("📊 Probabilidades reais estimadas")
 
-    df_b = simular_liga(SERIE_B, st.session_state.elo)
+    st.write(f"{time_a}: {pa}%")
+    st.write(f"Empate: {emp}%")
+    st.write(f"{time_b}: {pb}%")
 
-    st.dataframe(df_b)
-
-    atualizar_elo(df_a)
-    atualizar_elo(df_b)
-
-    SERIE_A, SERIE_B, rebaixados, promovidos = troca_ligas(df_a, df_b)
-
-    st.success(f"⬇️ Rebaixados: {rebaixados}")
-    st.success(f"⬆️ Promovidos: {promovidos}")
-
-    st.session_state.ano += 1
-
-    st.info("🔥 Temporada finalizada! Clique novamente para próxima temporada.")
+    st.subheader("🎯 Placar provável")
+    st.write(f"{time_a} {gols_a} x {gols_b} {time_b}")
