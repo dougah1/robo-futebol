@@ -1,91 +1,125 @@
 import streamlit as st
+import requests
 import random
-import math
 
-st.title("⚽ Robô de Probabilidade Real (Base Estatística)")
+st.title("💰⚽ Bet Simulator PRO (Tempo Real)")
 
-# -----------------------------
-# DADOS REAIS (SIMULADOS COMO ÚLTIMOS 5 JOGOS)
-# Aqui ideal seria puxar API, mas vamos estruturar certo
-# -----------------------------
-stats = {
-    "Flamengo": {"gf": 10, "gs": 4},
-    "Palmeiras": {"gf": 8, "gs": 3},
-    "São Paulo": {"gf": 6, "gs": 5},
-    "Corinthians": {"gf": 5, "gs": 7},
-    "Vasco": {"gf": 4, "gs": 8},
-    "Fluminense": {"gf": 7, "gs": 4},
-    "Botafogo": {"gf": 9, "gs": 5},
-    "Grêmio": {"gf": 6, "gs": 6},
-    "Internacional": {"gf": 7, "gs": 5},
-    "Atlético-MG": {"gf": 8, "gs": 4},
+# 🔑 COLE SUA API KEY AQUI
+API_KEY = "0c5168f1172dbcbe953972986f7aa11a"
+
+headers = {
+    "x-apisports-key": API_KEY
 }
 
 # -----------------------------
-# MÉDIA DE ATAQUE E DEFESA
+# BUSCAR ID DO TIME
 # -----------------------------
-def ataque(time):
-    return stats[time]["gf"] / 5
-
-def defesa(time):
-    return stats[time]["gs"] / 5
+def get_team_id(name):
+    url = f"https://v3.football.api-sports.io/teams?search={name}"
+    r = requests.get(url, headers=headers)
+    data = r.json()
+    return data["response"][0]["team"]["id"]
 
 # -----------------------------
-# POISSON SIMPLIFICADO
+# ÚLTIMOS JOGOS (FORMA REAL)
+# -----------------------------
+def form(team_id):
+    url = f"https://v3.football.api-sports.io/fixtures?team={team_id}&last=5"
+    r = requests.get(url, headers=headers)
+    data = r.json()
+
+    gf = 0
+    gs = 0
+
+    for game in data["response"]:
+        home = game["teams"]["home"]["id"]
+        goals = game["goals"]
+
+        if home == team_id:
+            gf += goals["home"]
+            gs += goals["away"]
+        else:
+            gf += goals["away"]
+            gs += goals["home"]
+
+    return gf/5, gs/5
+
+# -----------------------------
+# POISSON SIMPLES
 # -----------------------------
 def poisson(lmbda):
     return max(0, int(random.gauss(lmbda, 1)))
 
-def simular(time_a, time_b):
+# -----------------------------
+# SIMULAÇÃO
+# -----------------------------
+def simulate(a_id, b_id):
 
-    ataque_a = ataque(time_a)
-    defesa_a = defesa(time_a)
+    a_att, a_def = form(a_id)
+    b_att, b_def = form(b_id)
 
-    ataque_b = ataque(time_b)
-    defesa_b = defesa(time_b)
+    exp_a = max(0.2, a_att - b_def + 1.2)
+    exp_b = max(0.2, b_att - a_def + 1.2)
 
-    # expectativa de gols
-    exp_a = max(0.2, ataque_a - defesa_b + 1.2)
-    exp_b = max(0.2, ataque_b - defesa_a + 1.2)
+    ga = poisson(exp_a)
+    gb = poisson(exp_b)
 
-    gols_a = poisson(exp_a)
-    gols_b = poisson(exp_b)
+    total = ga + gb + 1
 
-    return gols_a, gols_b
+    pa = (ga / total) * 100
+    pb = (gb / total) * 100
+    draw = 100 - (pa + pb)
+
+    return ga, gb, pa, draw, pb
 
 # -----------------------------
-# PROBABILIDADE SIMPLIFICADA
+# ODDS
 # -----------------------------
-def prob(gols_a, gols_b):
+def odds(prob):
+    return round(100 / prob, 2)
 
-    if gols_a > gols_b:
-        return 55, 20, 25
-    elif gols_b > gols_a:
-        return 25, 20, 55
-    else:
-        return 33, 34, 33
+# -----------------------------
+# VALUE BET
+# -----------------------------
+def value(prob, odd):
+    return prob > (100 / odd)
 
 # -----------------------------
 # UI
 # -----------------------------
-time_a = st.selectbox("Time A", list(stats.keys()))
-time_b = st.selectbox("Time B", list(stats.keys()))
+team_a = st.text_input("Time Casa")
+team_b = st.text_input("Time Fora")
 
-if st.button("Calcular probabilidade"):
+if st.button("Analisar"):
 
-    if time_a == time_b:
-        st.warning("Escolha dois times diferentes")
-        st.stop()
+    try:
+        a_id = get_team_id(team_a)
+        b_id = get_team_id(team_b)
 
-    gols_a, gols_b = simular(time_a, time_b)
+        ga, gb, pa, draw, pb = simulate(a_id, b_id)
 
-    pa, emp, pb = prob(gols_a, gols_b)
+        st.subheader("📊 Probabilidades")
+        st.write(f"{team_a}: {pa:.1f}%")
+        st.write(f"Empate: {draw:.1f}%")
+        st.write(f"{team_b}: {pb:.1f}%")
 
-    st.subheader("📊 Probabilidades reais estimadas")
+        st.subheader("🎯 Placar provável")
+        st.write(f"{team_a} {ga} x {gb} {team_b}")
 
-    st.write(f"{time_a}: {pa}%")
-    st.write(f"Empate: {emp}%")
-    st.write(f"{time_b}: {pb}%")
+        st.subheader("💰 Odds justas")
+        oa = odds(pa)
+        od = odds(draw)
+        ob = odds(pb)
 
-    st.subheader("🎯 Placar provável")
-    st.write(f"{time_a} {gols_a} x {gols_b} {time_b}")
+        st.write(f"{team_a}: {oa}")
+        st.write(f"Empate: {od}")
+        st.write(f"{team_b}: {ob}")
+
+        st.subheader("🔥 Value Bet")
+
+        st.write(f"{team_a}: {'SIM' if value(pa, oa) else 'NÃO'}")
+        st.write(f"Empate: {'SIM' if value(draw, od) else 'NÃO'}")
+        st.write(f"{team_b}: {'SIM' if value(pb, ob) else 'NÃO'}")
+
+    except Exception as e:
+        st.error("Erro ao buscar dados. Verifique os nomes dos times.")
