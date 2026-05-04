@@ -1,83 +1,80 @@
 import streamlit as st
-import math
+import requests
 
-st.set_page_config(page_title="Robô de Análise Futebol", layout="centered")
+API_KEY = "0c5168f1172dbcbe953972986f7aa11a"
+API_HOST = "api-football-v1.p.rapidapi.com"
 
-st.title("⚽ Robô BRABO de Análise de Jogos")
+st.title("⚽ Robô PRO com Dados Reais")
 
-st.markdown("Digite os dados dos times:")
+def buscar_time(nome):
+    url = "https://api-football-v1.p.rapidapi.com/v3/teams"
+    headers = {
+        "X-RapidAPI-Key": API_KEY,
+        "X-RapidAPI-Host": API_HOST
+    }
+    params = {"search": nome}
 
-# INPUTS
-st.subheader("Time A")
-forma_a = st.number_input("Pontos últimos 5 jogos (0 a 15)", 0, 15, 10)
-gols_a = st.number_input("Média de gols marcados", 0.0, 5.0, 1.5)
-sofridos_a = st.number_input("Média de gols sofridos", 0.0, 5.0, 1.0)
-mando_a = st.selectbox("Joga em casa?", ["Sim", "Não"])
+    response = requests.get(url, headers=headers, params=params)
+    data = response.json()
 
-st.subheader("Time B")
-forma_b = st.number_input("Pontos últimos 5 jogos ", 0, 15, 7)
-gols_b = st.number_input("Média de gols marcados ", 0.0, 5.0, 1.2)
-sofridos_b = st.number_input("Média de gols sofridos ", 0.0, 5.0, 1.3)
-mando_b = st.selectbox("Joga em casa? ", ["Sim", "Não"])
+    if data["response"]:
+        return data["response"][0]["team"]["id"]
+    return None
 
-def calcular_forca(forma, gols, sofridos, mando):
-    ataque = gols
-    defesa = 1 / (sofridos + 0.1)
-    mando_val = 1 if mando == "Sim" else 0
+def buscar_stats(team_id):
+    url = "https://api-football-v1.p.rapidapi.com/v3/teams/statistics"
+    headers = {
+        "X-RapidAPI-Key": API_KEY,
+        "X-RapidAPI-Host": API_HOST
+    }
+    params = {
+        "team": team_id,
+        "league": 71,
+        "season": 2024
+    }
 
-    return (forma * 0.4) + (ataque * 0.3) + (defesa * 0.2) + (mando_val * 0.1)
+    response = requests.get(url, headers=headers, params=params)
+    data = response.json()
 
-def poisson(lmbda, k):
-    return (lmbda**k * math.exp(-lmbda)) / math.factorial(k)
+    if data["response"]:
+        gols = data["response"]["goals"]["for"]["total"]["total"]
+        sofridos = data["response"]["goals"]["against"]["total"]["total"]
+        return gols, sofridos
 
-if st.button("Analisar Jogo"):
+    return 0, 0
 
-    forca_a = calcular_forca(forma_a, gols_a, sofridos_a, mando_a)
-    forca_b = calcular_forca(forma_b, gols_b, sofridos_b, mando_b)
+time_a = st.text_input("Time A")
+time_b = st.text_input("Time B")
 
-    total = forca_a + forca_b
+if st.button("Analisar"):
 
-    prob_a = forca_a / total
-    prob_b = forca_b / total
-    empate = 1 - (prob_a + prob_b) * 0.9
+    if time_a and time_b:
 
-    st.subheader("📊 Probabilidades")
+        id_a = buscar_time(time_a)
+        id_b = buscar_time(time_b)
 
-    st.write(f"🏆 Time A: {prob_a*100:.1f}%")
-    st.write(f"🤝 Empate: {empate*100:.1f}%")
-    st.write(f"🏆 Time B: {prob_b*100:.1f}%")
+        if id_a and id_b:
 
-    # POISSON GOLS
-    media_a = gols_a
-    media_b = gols_b
+            gols_a, sofridos_a = buscar_stats(id_a)
+            gols_b, sofridos_b = buscar_stats(id_b)
 
-    gols_probs = {}
+            forca_a = gols_a - sofridos_a
+            forca_b = gols_b - sofridos_b
 
-    for i in range(5):
-        for j in range(5):
-            prob = poisson(media_a, i) * poisson(media_b, j)
-            gols_probs[f"{i}x{j}"] = prob
+            total = abs(forca_a) + abs(forca_b)
 
-    placar = max(gols_probs, key=gols_probs.get)
+            prob_a = (abs(forca_a) / total) * 100
+            prob_b = (abs(forca_b) / total) * 100
+            empate = 100 - (prob_a + prob_b)
 
-    st.subheader("🎯 Placar mais provável")
-    st.write(placar)
+            st.subheader("📊 Probabilidades reais")
 
-    st.subheader("🔥 Sugestões")
+            st.write(f"{time_a}: {prob_a:.1f}%")
+            st.write(f"Empate: {empate:.1f}%")
+            st.write(f"{time_b}: {prob_b:.1f}%")
 
-    if media_a + media_b > 2.5:
-        st.write("✔ Over 2.5 gols")
-    else:
-        st.write("⚠️ Under 2.5 gols")
-
-    if gols_a > 1 and gols_b > 1:
-        st.write("✔ Ambos marcam")
-
-    if prob_a > 0.55:
-        st.write("✔ Favorito: Time A")
-
-    elif prob_b > 0.55:
-        st.write("✔ Favorito: Time B")
+        else:
+            st.error("Time não encontrado!")
 
     else:
-        st.write("⚠️ Jogo equilibrado")
+        st.warning("Digite os dois times!")
