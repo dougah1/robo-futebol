@@ -4,7 +4,7 @@ import requests
 API_KEY = "0c5168f1172dbcbe953972986f7aa11a"
 API_HOST = "api-football-v1.p.rapidapi.com"
 
-st.title("⚽ Robô PRO com Dados Reais")
+st.title("⚽ Robô PRO - Previsão de Jogos")
 
 def buscar_time(nome):
     url = "https://api-football-v1.p.rapidapi.com/v3/teams"
@@ -14,12 +14,20 @@ def buscar_time(nome):
     }
     params = {"search": nome}
 
-    response = requests.get(url, headers=headers, params=params)
-    data = response.json()
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        data = response.json()
 
-    if data["response"]:
-        return data["response"][0]["team"]["id"]
-    return None
+        if "response" in data and len(data["response"]) > 0:
+            return data["response"][0]["team"]["id"]
+        else:
+            st.error(f"Time '{nome}' não encontrado ou API limitou.")
+            return None
+
+    except:
+        st.error("Erro ao conectar com API.")
+        return None
+
 
 def buscar_stats(team_id):
     url = "https://api-football-v1.p.rapidapi.com/v3/teams/statistics"
@@ -29,27 +37,35 @@ def buscar_stats(team_id):
     }
     params = {
         "team": team_id,
-        "league": 71,
+        "league": 71,   # Brasileirão
         "season": 2024
     }
 
-    response = requests.get(url, headers=headers, params=params)
-    data = response.json()
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        data = response.json()
 
-    if data["response"]:
-        gols = data["response"]["goals"]["for"]["total"]["total"]
-        sofridos = data["response"]["goals"]["against"]["total"]["total"]
-        return gols, sofridos
+        if "response" in data and data["response"]:
+            gols = data["response"]["goals"]["for"]["total"]["total"]
+            sofridos = data["response"]["goals"]["against"]["total"]["total"]
+            return gols, sofridos
+        else:
+            st.warning("Não foi possível pegar estatísticas.")
+            return 0, 0
 
-    return 0, 0
+    except:
+        st.error("Erro ao buscar estatísticas.")
+        return 0, 0
+
 
 time_a = st.text_input("Time A")
 time_b = st.text_input("Time B")
 
 if st.button("Analisar"):
 
-    if time_a and time_b:
-
+    if not time_a or not time_b:
+        st.warning("Digite os dois times!")
+    else:
         id_a = buscar_time(time_a)
         id_b = buscar_time(time_b)
 
@@ -63,18 +79,15 @@ if st.button("Analisar"):
 
             total = abs(forca_a) + abs(forca_b)
 
-            prob_a = (abs(forca_a) / total) * 100
-            prob_b = (abs(forca_b) / total) * 100
-            empate = 100 - (prob_a + prob_b)
+            if total == 0:
+                st.warning("Dados insuficientes pra prever.")
+            else:
+                prob_a = (abs(forca_a) / total) * 100
+                prob_b = (abs(forca_b) / total) * 100
+                empate = 100 - (prob_a + prob_b)
 
-            st.subheader("📊 Probabilidades reais")
+                st.subheader("📊 Probabilidades")
 
-            st.write(f"{time_a}: {prob_a:.1f}%")
-            st.write(f"Empate: {empate:.1f}%")
-            st.write(f"{time_b}: {prob_b:.1f}%")
-
-        else:
-            st.error("Time não encontrado!")
-
-    else:
-        st.warning("Digite os dois times!")
+                st.success(f"{time_a}: {prob_a:.1f}%")
+                st.info(f"Empate: {empate:.1f}%")
+                st.success(f"{time_b}: {prob_b:.1f}%")
