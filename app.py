@@ -1,91 +1,136 @@
 import streamlit as st
 import random
-import math
+import pandas as pd
 
-st.title("⚽ Robô Inteligente 2.0 (Brasileirão)")
+st.title("⚽ Brasileirão Simulator 2026 - Modo Carreira")
 
-# FORÇA DOS TIMES (base realista aproximada)
-times = {
-    "Flamengo": 88,
-    "Palmeiras": 89,
-    "São Paulo": 80,
-    "Corinthians": 78,
-    "Vasco": 75,
-    "Fluminense": 82,
-    "Botafogo": 83,
-    "Grêmio": 81,
-    "Internacional": 82,
-    "Atlético-MG": 85,
-    "Cruzeiro": 79,
-    "Bahia": 78,
-    "Fortaleza": 80,
-    "Ceará": 74,
-    "Sport": 72,
-    "Vitória": 73,
-    "Bragantino": 81,
-    "Athletico-PR": 82,
-    "Goiás": 71,
-    "Juventude": 70
-}
+# -----------------------------
+# CONFIG INICIAL (2026 base fictícia)
+# -----------------------------
+SERIE_A = [
+    "Flamengo","Palmeiras","São Paulo","Corinthians","Vasco",
+    "Fluminense","Botafogo","Grêmio","Internacional","Atlético-MG",
+    "Cruzeiro","Bahia","Fortaleza","Ceará","Bragantino",
+    "Athletico-PR","Goiás","Vitória","Sport","Juventude"
+]
 
-def expectativa_gols(forca_a, forca_b, casa=True):
-    """Modelo simples tipo Poisson reduzido"""
-    
-    vantagem_casa = 1.15 if casa else 1.0
-    
-    ataque_a = forca_a * vantagem_casa
-    defesa_b = forca_b
-    
-    ataque_b = forca_b * (1.0 if casa else 1.15)
-    defesa_a = forca_a
-    
-    lambda_a = max(0.2, (ataque_a - defesa_b) / 30)
-    lambda_b = max(0.2, (ataque_b - defesa_a) / 30)
+SERIE_B = [
+    "Santos","Coritiba","Cuiabá","Ponte Preta","Chapecoense",
+    "Avaí","CRB","Vila Nova","Novorizontino","Operário"
+]
 
-    gols_a = min(5, int(random.gauss(lambda_a, 1)))
-    gols_b = min(5, int(random.gauss(lambda_b, 1)))
+# -----------------------------
+# INIT ELO (persistente)
+# -----------------------------
+if "elo" not in st.session_state:
+    st.session_state.elo = {t: random.randint(1600, 1850) for t in SERIE_A + SERIE_B}
 
-    return max(0, gols_a), max(0, gols_b)
+if "ano" not in st.session_state:
+    st.session_state.ano = 2026
 
-def calcular_probabilidades(gols_a, gols_b):
-    if gols_a > gols_b:
-        return 55, 20, 25
-    elif gols_b > gols_a:
-        return 25, 20, 55
-    else:
-        return 35, 30, 35
+# -----------------------------
+# FUNÇÕES
+# -----------------------------
+def prob(a, b):
+    return 1 / (1 + 10 ** ((b - a) / 400))
 
+def gols(elo_a, elo_b):
+    base_a = (elo_a / 1000) * 2.2
+    base_b = (elo_b / 1000) * 2.2
 
+    g1 = max(0, int(random.gauss(base_a, 1)))
+    g2 = max(0, int(random.gauss(base_b, 1)))
+
+    return g1, g2
+
+# -----------------------------
+# SIMULAÇÃO DE LIGA
+# -----------------------------
+def simular_liga(times, elo):
+
+    tabela = {t: {"PTS":0,"GP":0,"GC":0,"SG":0} for t in times}
+
+    for i in range(len(times)):
+        for j in range(i+1, len(times)):
+
+            a = times[i]
+            b = times[j]
+
+            ga, gb = gols(elo[a], elo[b])
+
+            tabela[a]["GP"] += ga
+            tabela[a]["GC"] += gb
+            tabela[b]["GP"] += gb
+            tabela[b]["GC"] += ga
+
+            if ga > gb:
+                tabela[a]["PTS"] += 3
+            elif gb > ga:
+                tabela[b]["PTS"] += 3
+            else:
+                tabela[a]["PTS"] += 1
+                tabela[b]["PTS"] += 1
+
+    for t in tabela:
+        tabela[t]["SG"] = tabela[t]["GP"] - tabela[t]["GC"]
+
+    df = pd.DataFrame.from_dict(tabela, orient="index")
+    df = df.sort_values(["PTS","SG","GP"], ascending=False)
+
+    return df
+
+# -----------------------------
+# EVOLUÇÃO ELO
+# -----------------------------
+def atualizar_elo(df):
+    for i, row in df.iterrows():
+        if row["PTS"] > 60:
+            st.session_state.elo[i] += random.randint(10, 25)
+        elif row["PTS"] < 45:
+            st.session_state.elo[i] -= random.randint(10, 25)
+        else:
+            st.session_state.elo[i] += random.randint(-5, 10)
+
+# -----------------------------
+# PROMOÇÃO / REBAIXAMENTO
+# -----------------------------
+def troca_ligas(df_a, df_b):
+
+    rebaixados = list(df_a.tail(4).index)
+    promovidos = list(df_b.head(4).index)
+
+    nova_a = list(df_a.head(16).index) + promovidos
+    nova_b = list(df_b.tail(len(df_b)-4).index) + rebaixados
+
+    return nova_a, nova_b, rebaixados, promovidos
+
+# -----------------------------
 # UI
-time_a = st.selectbox("Time A (Casa)", list(times.keys()))
-time_b = st.selectbox("Time B (Visitante)", list(times.keys()))
+# -----------------------------
+st.write(f"📅 Ano atual: {st.session_state.ano}")
 
-if st.button("Simular Jogo"):
+if st.button("Simular temporada completa"):
 
-    if time_a == time_b:
-        st.warning("Escolha times diferentes!")
-        st.stop()
+    st.subheader("🏆 Série A")
 
-    forca_a = times[time_a]
-    forca_b = times[time_b]
+    df_a = simular_liga(SERIE_A, st.session_state.elo)
 
-    gols_a, gols_b = expectativa_gols(forca_a, forca_b, casa=True)
+    st.dataframe(df_a)
 
-    prob_a, empate, prob_b = calcular_probabilidades(gols_a, gols_b)
+    st.subheader("📉 Série B")
 
-    st.subheader("📊 Probabilidades")
+    df_b = simular_liga(SERIE_B, st.session_state.elo)
 
-    st.success(f"{time_a}: {prob_a:.1f}%")
-    st.info(f"Empate: {empate:.1f}%")
-    st.success(f"{time_b}: {prob_b:.1f}%")
+    st.dataframe(df_b)
 
-    st.subheader("🎯 Placar provável")
-    st.write(f"{time_a} {gols_a} x {gols_b} {time_b}")
+    atualizar_elo(df_a)
+    atualizar_elo(df_b)
 
-    # leitura extra estilo “robô”
-    if gols_a > gols_b:
-        st.write(f"🔮 Leitura: vitória do {time_a} com vantagem leve.")
-    elif gols_b > gols_a:
-        st.write(f"🔮 Leitura: {time_b} deve surpreender fora de casa.")
-    else:
-        st.write("🔮 Leitura: jogo equilibrado, tendência forte de empate.")
+    SERIE_A, SERIE_B, rebaixados, promovidos = troca_ligas(df_a, df_b)
+
+    st.success(f"⬇️ Rebaixados: {rebaixados}")
+    st.success(f"⬆️ Promovidos: {promovidos}")
+
+    st.session_state.ano += 1
+
+    st.info("🔥 Temporada finalizada! Clique novamente para próxima temporada.")
