@@ -1,44 +1,41 @@
 import streamlit as st
-import requests
+import random
 
-API_KEY = "0c5168f1172dbcbe953972986f7aa11a"
-API_HOST = "api-football-v1.p.rapidapi.com"
+st.title("⚽ Robô Inteligente (Sem API)")
 
-st.title("⚽ Robô PRO (Modo Estável)")
-
+# Times com força base (você pode expandir depois)
 times = {
-    "Flamengo": 127,
-    "Palmeiras": 121,
-    "São Paulo": 133,
-    "Corinthians": 119,
-    "Remo": 5583
+    "Flamengo": 85,
+    "Palmeiras": 88,
+    "São Paulo": 78,
+    "Corinthians": 76,
+    "Remo": 65
 }
 
-def buscar_stats(team_id):
-    url = "https://api-football-v1.p.rapidapi.com/v3/teams/statistics"
-    headers = {
-        "X-RapidAPI-Key": API_KEY,
-        "X-RapidAPI-Host": API_HOST
-    }
-    params = {
-        "team": team_id,
-        "league": 71,
-        "season": 2024
-    }
+def simular_jogo(forca_a, forca_b):
+    # Simula forma recente
+    forma_a = random.randint(-5, 5)
+    forma_b = random.randint(-5, 5)
 
-    try:
-        response = requests.get(url, headers=headers, params=params)
-        data = response.json()
+    ataque_a = forca_a + forma_a
+    ataque_b = forca_b + forma_b
 
-        if "response" in data and data["response"]:
-            gols = data["response"]["goals"]["for"]["total"]["total"]
-            sofridos = data["response"]["goals"]["against"]["total"]["total"]
-            return gols, sofridos
-        else:
-            return 0, 0
+    defesa_a = forca_a - random.randint(0, 10)
+    defesa_b = forca_b - random.randint(0, 10)
 
-    except:
-        return 0, 0
+    score_a = ataque_a - defesa_b
+    score_b = ataque_b - defesa_a
+
+    total = abs(score_a) + abs(score_b)
+
+    if total == 0:
+        return 33, 34, 33
+
+    prob_a = (abs(score_a) / total) * 100
+    prob_b = (abs(score_b) / total) * 100
+    empate = 100 - (prob_a + prob_b)
+
+    return prob_a, empate, prob_b
 
 
 time_a = st.selectbox("Time A", list(times.keys()))
@@ -46,26 +43,20 @@ time_b = st.selectbox("Time B", list(times.keys()))
 
 if st.button("Analisar"):
 
-    id_a = times[time_a]
-    id_b = times[time_b]
+    forca_a = times[time_a]
+    forca_b = times[time_b]
 
-    gols_a, sofridos_a = buscar_stats(id_a)
-    gols_b, sofridos_b = buscar_stats(id_b)
+    prob_a, empate, prob_b = simular_jogo(forca_a, forca_b)
 
-    forca_a = gols_a - sofridos_a
-    forca_b = gols_b - sofridos_b
+    st.subheader("📊 Probabilidades")
 
-    total = abs(forca_a) + abs(forca_b)
+    st.success(f"{time_a}: {prob_a:.1f}%")
+    st.info(f"Empate: {empate:.1f}%")
+    st.success(f"{time_b}: {prob_b:.1f}%")
 
-    if total == 0:
-        st.warning("API não retornou dados hoje (limite atingido).")
-    else:
-        prob_a = (abs(forca_a) / total) * 100
-        prob_b = (abs(forca_b) / total) * 100
-        empate = 100 - (prob_a + prob_b)
+    # Previsão de placar
+    gols_a = max(0, int(prob_a // 20))
+    gols_b = max(0, int(prob_b // 20))
 
-        st.subheader("📊 Probabilidades")
-
-        st.success(f"{time_a}: {prob_a:.1f}%")
-        st.info(f"Empate: {empate:.1f}%")
-        st.success(f"{time_b}: {prob_b:.1f}%")
+    st.subheader("🎯 Placar provável")
+    st.write(f"{time_a} {gols_a} x {gols_b} {time_b}")
